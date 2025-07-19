@@ -28,6 +28,14 @@ jobs:
 
   test:
     runs-on: ubuntu-latest
+
+    env:
+      APRICOT_API_KEY: ${{ secrets.APRICOT_API_KEY }}
+      APRICOT_API_URI: ${{ secrets.APRICOT_API_URI }}
+      APRICOT_AUTH_URI: ${{ secrets.APRICOT_AUTH_URI }}
+      APRICOT_CLIENT_ID: ${{ secrets.APRICOT_CLIENT_ID }}
+      APRICOT_CLIENT_SECRET: ${{ secrets.APRICOT_CLIENT_SECRET }}
+
     steps:
       - name: checkout
         uses: actions/checkout@v3
