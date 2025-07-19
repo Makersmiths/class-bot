@@ -1,5 +1,5 @@
 use log::{debug, info, trace};
-use std::env;
+use std::{env, time};
 use thiserror::Error;
 
 use base64::prelude::*;
@@ -20,14 +20,17 @@ pub struct ApricotApi {
     api_key: String,
     oauth_token: String,
     account_id: i64,
+    token_expire: time::Instant,
 }
 
 impl ApricotApi {
     /// Form a Open AI interface, does not make any requests by itself
     /// # Panics
-    /// Failure to load dotenv
-    #[must_use]
+    /// Failure to load env vars
+    /// # Errors
+    /// Failure to request initial oauth token
     pub async fn new() -> Result<Self, ApricotError> {
+        info!("Apricot API initilzing");
         if env::var("APRICOT_API_KEY").is_err()
             || env::var("APRICOT_CLIENT_ID").is_err()
             || env::var("APRICOT_CLIENT_SECRET").is_err()
@@ -40,14 +43,14 @@ impl ApricotApi {
         let auth_uri: String = env::var("APRICOT_AUTH_URI").expect("Auth URI not defined");
         let api_uri: String = env::var("APRICOT_API_URI").expect("API URI not defined");
         let api_key: String = env::var("APRICOT_API_KEY").expect("API Key not defined");
-        let api_key = BASE64_STANDARD.encode(&format!("APIKEY:{api_key}"));
+        let api_key = BASE64_STANDARD.encode(format!("APIKEY:{api_key}"));
 
         let auth_header: String = format!("Basic {api_key}");
 
         // Initial oauth request, further requests should just be renewals
         let client = reqwest::Client::new();
         let resp = client
-            .post(format!("{}/auth/token", auth_uri))
+            .post(format!("{auth_uri}/auth/token"))
             .header(
                 reqwest::header::CONTENT_TYPE,
                 "application/x-www-form-urlencoded",
@@ -60,10 +63,18 @@ impl ApricotApi {
             .await?;
         trace!("Raw auth response: {resp}");
         let oauth_response: OAuthResponse = serde_json::from_str(&resp)?;
+        debug!("Auth response: {oauth_response:?}");
 
-        // Extract the peices we care about
+        // Extract the pieces we care about
         let oauth_token = oauth_response.access_token;
         let account_id = oauth_response.permissions[0].account_id;
+        let token_expire = time::Instant::now()
+            + time::Duration::from_secs(
+                oauth_response
+                    .expires_in
+                    .try_into()
+                    .expect("Could not calculate oauth token expiry"),
+            );
 
         Ok(Self {
             auth_uri,
@@ -71,10 +82,30 @@ impl ApricotApi {
             api_key,
             oauth_token,
             account_id,
+            token_expire,
         })
     }
 
-    pub async fn events(&self) -> Result<String, ApricotError> {
+    /// Request a new token from oauth, replace the old one, update expiry time
+    /// # Errors
+    /// Errors on API request or parsing issues
+    pub fn renew_token(&mut self) -> Result<(), ApricotError> {
+        self.oauth_token = "wip".to_string();
+        let _ = self.auth_uri;
+        let _ = self.api_key;
+        todo!("Add logic for token renewal");
+    }
+
+    /// Get list of events on the calendar
+    /// # Errors
+    /// Errors on API request or parsing issues
+    pub async fn events(&mut self) -> Result<String, ApricotError> {
+        info!("Events requested");
+        if self.token_expire < time::Instant::now() {
+            info!("oauth token has expired since last request, getting a renewal");
+            self.renew_token()?;
+        }
+
         let client = reqwest::Client::new();
         let resp = client
             .get(format!(
@@ -96,11 +127,13 @@ impl ApricotApi {
             .text()
             .await?;
         trace!("Raw course list response: {resp}");
-        // let oauth_response: OAuthResponse = serde_json::from_str(&resp)?;
+        // TODO: Create event response struct
+        // let events_response: EventsResponse = serde_json::from_str(&resp)?;
         Ok(resp)
     }
 }
 
+#[allow(dead_code)] // Some fields we don't need now but could be handy later
 #[derive(Debug, Deserialize)]
 pub struct OAuthResponse {
     access_token: String,
@@ -126,104 +159,41 @@ pub struct Permission {
 mod tests {
     use super::*;
 
-    // #[test]
-    // fn test_api_env_vars() {
-    //     // This is not always a fail state, sometimes env vars could come from somewhere else
-    //     match dotenv::dotenv() {
-    //         Ok(_) => debug!("Loaded .env file"),
-    //         Err(e) => debug!("Failed to load .env: {e}"),
-    //     }; // from .env file
-    //
-    //     if env::var("OPEN_AI_TOKEN")
-    //         .expect("OPEN_AI_TOKEN load failed")
-    //         .is_empty()
-    //     {
-    //         panic!("OPEN_AI_TOKEN is empty");
-    //     }
-    //
-    //     if env::var("OPEN_AI_URI")
-    //         .expect("OPEN_AI_URI load failed")
-    //         .is_empty()
-    //     {
-    //         panic!("OPEN_AI_URI is empty");
-    //     }
-    // }
-    //
-    // #[test]
-    // fn test_new_openaiapi() {
-    //     let openai_api = OpenAiApi::new();
-    //     assert!(!openai_api.uri.is_empty() && !openai_api.auth_header.is_empty());
-    // }
-    //
-    // #[tokio::test]
-    // async fn test_test_connection() {
-    //     let openai_api = OpenAiApi::new();
-    //     let response = openai_api.test_connection().await.unwrap();
-    //     assert!(response.starts_with("Connection opened with"));
-    // }
-    //
-    // #[tokio::test]
-    // async fn test_chat_prompt_not_empty() {
-    //     let openai_api = OpenAiApi::new();
-    //     let prompt = String::from("Hello!");
-    //     let chat_id = String::from("test_chat_id");
-    //     let response = openai_api
-    //         .chat(prompt.clone(), chat_id.clone())
-    //         .await
-    //         .unwrap();
-    //     assert!(!response.is_empty());
-    // }
-    //
-    // #[tokio::test]
-    // async fn test_chat_prompt_empty() {
-    //     let openai_api = OpenAiApi::new();
-    //     let prompt = String::new();
-    //     let chat_id = String::from("test_chat_id");
-    //     let response = openai_api
-    //         .chat(prompt.clone(), chat_id.clone())
-    //         .await
-    //         .unwrap();
-    //     assert_eq!(response, "Prompt is empty, usage: '/chat [PROMPT HERE]'");
-    // }
-    //
-    // #[tokio::test]
-    // async fn test_chat_purge_with_prompt() {
-    //     let openai_api = OpenAiApi::new();
-    //     let prompt = String::from("test prompt");
-    //     let chat_id = String::from("test_purge_with_prompt");
-    //     let response = openai_api.chat_purge(&chat_id, &prompt).unwrap();
-    //     assert_eq!(response, "Chat history purged with prompt 'test prompt'.");
-    //     let history = ChatHistory::new(&chat_id).unwrap();
-    //     assert_eq!(history.messages[0].role, "system");
-    //     assert_eq!(history.messages[0].content, "test prompt");
-    // }
-    //
-    // #[tokio::test]
-    // async fn test_chat_purge_without_prompt() {
-    //     let openai_api = OpenAiApi::new();
-    //     let prompt = String::new();
-    //     let chat_id = String::from("test_purge_without_prompt");
-    //     let response = openai_api.chat_purge(&chat_id, &prompt).unwrap();
-    //     assert_eq!(response, "Chat history purged without a custom prompt.");
-    // }
-    //
-    // #[tokio::test]
-    // async fn test_image_prompt_not_empty() {
-    //     let openai_api = OpenAiApi::new();
-    //     let prompt = String::from("test prompt");
-    //     let response = openai_api.image(prompt.clone()).await.unwrap();
-    //     assert!(!response.is_empty());
-    // }
-    //
-    // #[tokio::test]
-    // async fn test_image_prompt_empty() {
-    //     let openai_api = OpenAiApi::new();
-    //     let prompt = String::new();
-    //     let response = openai_api.image(prompt.clone()).await;
-    //     assert!(response.is_ok(), "Error: {:?}", response.err());
-    //     assert_eq!(
-    //         response.unwrap(),
-    //         "Prompt is empty, usage: '/image [PROMPT HERE]'"
-    //     );
-    // }
+    #[test]
+    #[test_log::test]
+    fn api_env_vars() {
+        // This is not always a fail state, sometimes env vars could come from somewhere else
+        match dotenv::dotenv() {
+            Ok(_) => debug!("Loaded .env file"),
+            Err(e) => debug!("Failed to load .env: {e}"),
+        }
+
+        let test_var = |var: &str| {
+            if env::var(var)
+                .unwrap_or_else(|e| panic!("{var} load failed with {e}"))
+                .is_empty()
+            {
+                panic!("{var} is empty");
+            }
+        };
+
+        test_var("APRICOT_API_KEY");
+        test_var("APRICOT_API_URI");
+        test_var("APRICOT_AUTH_URI");
+    }
+
+    #[tokio::test]
+    #[test_log::test]
+    async fn new_apricot() {
+        let apricot = ApricotApi::new().await.unwrap();
+        assert!(!apricot.oauth_token.is_empty());
+    }
+
+    #[tokio::test]
+    #[test_log::test]
+    async fn event_list() {
+        let mut apricot = ApricotApi::new().await.unwrap();
+        let response = apricot.events().await.unwrap();
+        assert!(response.contains("StartTimeSpecified"));
+    }
 }
