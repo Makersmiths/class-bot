@@ -13,6 +13,12 @@ spell:
 spell-fix:
   typos -w
 
+# Test
+alias t := test
+
+test:
+  cargo test
+
 # Formatting
 alias f := format-fix
 alias fc := format-check

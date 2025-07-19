@@ -1,0 +1,54 @@
+name: Rust
+
+on: [push, pull_request]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - name: checkout
+        uses: actions/checkout@v3
+      - name: setup-just
+        uses: extractions/setup-just@v3
+
+      - name: format
+        run: just format-check
+        continue-on-error: true
+
+      - name: clippy-easy
+        run: just clippy-easy
+
+      - name: clippy-strict
+        run: just clippy-strict
+        continue-on-error: true
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: checkout
+        uses: actions/checkout@v3
+      - name: setup-just
+        uses: extractions/setup-just@v3
+
+      - name: test
+        run: just test
+
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: checkout
+        uses: actions/checkout@v3
+      - name: setup-just
+        uses: extractions/setup-just@v3
+
+      - name: build
+        run: just build-release
+
+      - name: artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-output
+          path: ./target
