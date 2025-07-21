@@ -1,12 +1,14 @@
-use log::{debug, info, trace};
+pub mod events;
+
 use std::{env, time};
-use thiserror::Error;
 
 use base64::prelude::*;
+use log::{debug, info, trace};
 use serde_derive::{Deserialize, Serialize};
+use thiserror::Error;
 
 #[derive(Debug, Error)]
-pub enum ApricotError {
+pub enum Error {
     #[error("Error making request")]
     NetError(#[from] reqwest::Error),
 
@@ -23,6 +25,8 @@ pub enum ApricotError {
     ConvertError(#[from] std::num::TryFromIntError),
 }
 
+/// Generalized Wild Apricots API struct, new endpoints should be added here
+/// This struct should remain agnostic to what endpoints it is targeting
 #[derive(Debug)]
 pub struct ApricotApi {
     auth_uri: String,
@@ -37,7 +41,7 @@ impl ApricotApi {
     /// Form a Wild Apricot API interface, does not make any requests by itself
     /// # Errors
     /// Failure to request initial oauth token
-    pub async fn new() -> Result<Self, ApricotError> {
+    async fn new() -> Result<Self, Error> {
         info!("Apricot API initilzing");
         if env::var("APRICOT_API_KEY").is_err()
             || env::var("APRICOT_CLIENT_ID").is_err()
@@ -48,8 +52,10 @@ impl ApricotApi {
             dotenv::dotenv()?;
         }
 
-        let auth_uri: String = env::var("APRICOT_AUTH_URI")?;
-        let api_uri: String = env::var("APRICOT_API_URI")?;
+        let auth_uri: String =
+            env::var("APRICOT_AUTH_URI").unwrap_or("https://oauth.wildapricot.org".to_string());
+        let api_uri: String =
+            env::var("APRICOT_API_URI").unwrap_or("https://api.wildapricot.org".to_string());
         let api_key: String = env::var("APRICOT_API_KEY")?;
 
         let auth_header = BASE64_STANDARD.encode(format!("APIKEY:{api_key}"));
@@ -92,7 +98,7 @@ impl ApricotApi {
     /// Request a new token from oauth, replace the old one, update expiry time
     /// # Errors
     /// Errors on API request or parsing issues
-    pub async fn renew_token(&mut self) -> Result<(), ApricotError> {
+    async fn renew_token(&mut self) -> Result<(), Error> {
         info!("Requesting token renewal");
 
         let auth_header = BASE64_STANDARD.encode(format!("APIKEY:{}", self.api_key));
@@ -131,7 +137,7 @@ impl ApricotApi {
     /// Get list of events on the calendar
     /// # Errors
     /// Errors on API request or parsing issues
-    pub async fn events(&mut self) -> Result<EventsResponse, ApricotError> {
+    async fn events(&mut self) -> Result<EventsResponse, Error> {
         info!("Events requested");
         if self.token_expire < time::Instant::now() {
             info!("oauth token has expired since last request, getting a renewal");
@@ -153,7 +159,7 @@ impl ApricotApi {
                 reqwest::header::AUTHORIZATION,
                 format!("Bearer {}", self.oauth_token),
             )
-            .body("$top=10$filter=substringof(TextIndex,'house')")
+            .body("") // TODO: I have not been able to get filtering to work at all
             .send()
             .await?
             .text()
@@ -167,7 +173,7 @@ impl ApricotApi {
 
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[allow(dead_code)] // Some fields we don't need now but could be handy later
-pub struct OAuthResponse {
+struct OAuthResponse {
     access_token: String,
     token_type: String,
     expires_in: i32,
@@ -178,16 +184,16 @@ pub struct OAuthResponse {
 
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
-pub struct Permission {
-    pub account_id: i64,
-    pub security_profile_id: i64,
-    pub available_scopes: Vec<String>,
+struct Permission {
+    account_id: i64,
+    security_profile_id: i64,
+    available_scopes: Vec<String>,
 }
 
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
-pub struct EventsResponse {
-    pub events: Vec<Event>,
+struct EventsResponse {
+    events: Vec<Event>,
 }
 
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
