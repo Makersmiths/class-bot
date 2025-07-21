@@ -131,7 +131,7 @@ impl ApricotApi {
     /// Get list of events on the calendar
     /// # Errors
     /// Errors on API request or parsing issues
-    pub async fn events(&mut self) -> Result<String, ApricotError> {
+    pub async fn events(&mut self) -> Result<EventsResponse, ApricotError> {
         info!("Events requested");
         if self.token_expire < time::Instant::now() {
             info!("oauth token has expired since last request, getting a renewal");
@@ -160,13 +160,13 @@ impl ApricotApi {
             .await?;
         trace!("Raw course list response: {resp}");
         // TODO: Create event response struct
-        // let events_response: EventsResponse = serde_json::from_str(&resp)?;
-        Ok(resp)
+        let events_response: EventsResponse = serde_json::from_str(&resp)?;
+        Ok(events_response)
     }
 }
 
+#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[allow(dead_code)] // Some fields we don't need now but could be handy later
-#[derive(Debug, Deserialize)]
 pub struct OAuthResponse {
     access_token: String,
     token_type: String,
@@ -177,14 +177,41 @@ pub struct OAuthResponse {
 }
 
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "PascalCase")]
 pub struct Permission {
-    #[serde(rename = "AccountId")]
     pub account_id: i64,
-    #[serde(rename = "SecurityProfileId")]
     pub security_profile_id: i64,
-    #[serde(rename = "AvailableScopes")]
     pub available_scopes: Vec<String>,
+}
+
+#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "PascalCase")]
+pub struct EventsResponse {
+    pub events: Vec<Event>,
+}
+
+#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "PascalCase")]
+#[allow(clippy::struct_excessive_bools)] // We can't avoid this because its a Serde struct
+pub struct Event {
+    pub id: i64,
+    pub url: String,
+    pub event_type: String,
+    pub start_date: String,
+    pub end_date: String,
+    pub location: String,
+    pub registration_enabled: bool,
+    pub registrations_limit: Option<i64>,
+    pub pending_registrations_count: i64,
+    pub confirmed_registrations_count: i64,
+    pub wait_list_registration_count: i64,
+    pub checked_in_attendees_number: i64,
+    pub tags: Vec<String>,
+    pub access_level: String,
+    pub start_time_specified: bool,
+    pub end_time_specified: bool,
+    pub has_enabled_registration_types: bool,
+    pub name: String,
 }
 
 #[cfg(test)]
@@ -239,6 +266,6 @@ mod tests {
     async fn event_list() {
         let mut apricot = ApricotApi::new().await.unwrap();
         let response = apricot.events().await.unwrap();
-        assert!(response.contains("StartTimeSpecified"));
+        assert!(!response.events.is_empty());
     }
 }
