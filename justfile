@@ -1,7 +1,7 @@
 default:
   @just --list
 
-all: spell format-check clippy-strict build-release
+all: spell format-check test clippy-strict build-release
 
 # Spelling
 alias s := spell
