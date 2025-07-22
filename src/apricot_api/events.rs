@@ -1,8 +1,10 @@
 use std::{
+    fmt::Display,
     sync::{Arc, OnceLock},
     time,
 };
 
+use chrono::DateTime;
 use log::{debug, info};
 use tokio::sync::Mutex;
 
@@ -55,6 +57,76 @@ pub async fn get_events() -> Result<Vec<Event>, Error> {
     }
 
     Ok(events_store.events_response.events.clone())
+}
+
+impl Display for Event {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // Format dates - https://docs.rs/chrono/latest/chrono/format/strftime
+        let (start_date, start_time) = if self.end_time_specified {
+            let end_datetime = DateTime::parse_from_rfc3339(&self.start_date).unwrap_or_default();
+            let start_date = end_datetime.format("- Start date: %v \n").to_string();
+            let start_time = end_datetime
+                .format("- Start time: %-l:%M %P \n")
+                .to_string();
+            (start_date, start_time)
+        } else {
+            (String::new(), String::new())
+        };
+        let (mut end_date, end_time) = if self.end_time_specified {
+            let end_datetime = DateTime::parse_from_rfc3339(&self.end_date).unwrap_or_default();
+            let end_date = end_datetime.format("- End date: %v \n").to_string();
+            let end_time = end_datetime.format("- End time: %-l:%M %P \n").to_string();
+            (end_date, end_time)
+        } else {
+            (String::new(), String::new())
+        };
+        // Single day classes should not display end date
+        // Slice is to cut out the "- Start date: " and compare just the dates
+        if start_date[14..] == end_date[12..] {
+            end_date = String::new();
+        }
+
+        // Registartion limits
+        let registration_str = match self.registrations_limit {
+            Some(registration_limit) => {
+                format!(
+                    "- Registration: {} out of {registration_limit} slots registered\n",
+                    self.confirmed_registrations_count
+                )
+            }
+            None if self.registration_enabled => {
+                format!(
+                    "- Registration: {} signed up, no limit\n",
+                    self.confirmed_registrations_count
+                )
+            }
+            None => "- Registration: online registration disabled\n".to_string(),
+        };
+
+        // Tags
+        let mut tags_str = self
+            .tags
+            .iter()
+            .fold(String::new(), |acc, tag| format!("{acc} {tag}"));
+        if !tags_str.is_empty() {
+            tags_str = format!("- Tags:{tags_str}\n");
+        }
+
+        write!(
+            f,
+            "## Event: {} \n\
+            - Link: https://makersmiths.org/event-{} \n\
+            - Location: {} \n\
+            {start_date}\
+            {end_date}\
+            {start_time}\
+            {end_time}\
+            {registration_str}\
+            {tags_str}\
+            ",
+            self.name, self.id, self.location
+        )
+    }
 }
 
 #[cfg(test)]

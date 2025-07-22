@@ -1,4 +1,4 @@
-use log::info;
+use log::{debug, info};
 
 use class_bot::apricot_api;
 
@@ -10,5 +10,7 @@ async fn main() {
     info!("Starting class-bot...");
 
     let events = apricot_api::events::get_events().await.unwrap();
-    info!("Events: {events:#?}");
+    debug!("Events: {events:#?}");
+
+    info!("Single event\n\n{:#?}\n\n{}", events[157], events[157]);
 }
